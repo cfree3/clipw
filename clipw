@@ -1,0 +1,398 @@
+#!/bin/bash
+# clipw | Curtis Free (http://curtisfree.com)
+# A simple CLI password manager.
+
+# setup
+
+# find the best location for the password store (locally if executed as `clipw-e`)
+if [ "$(basename ${0})" = "clipw-e" ]; then
+    CONFIG_HOME=$(dirname $(readlink -fn ${0}))
+else
+    # prefer XDG_CONFIG_HOME (typically ~/.config)
+    if [ -n "${XDG_CONFIG_HOME}" ]; then
+        CONFIG_HOME=${XDG_CONFIG_HOME}/clipw
+    # fallback: ~
+    else
+        CONFIG_HOME=${HOME}
+    fi
+fi
+PASSWORD_FILE=${CONFIG_HOME}/store.pw.gpg
+
+# internal functions
+
+# _nocolon - checks that the given string does not contain any colons
+function _clipw_nocolon() {
+    local desc=${1}   # description of the string to check
+    local string=${2} # string to check
+
+    # if given string contains a colon, echo an error message (caller can exit)
+    if [[ "${string}" =~ ".*:.*" ]]; then
+        echo "${desc} cannot contain a colon (:)!"
+    fi
+}
+
+# _depcheck - ensures that all dependencies are present
+function _clipw_depcheck() {
+    local dependency=${1} # name of the dependency executable
+
+    # if the dependency doesn't exist, exit code 3
+    if ! which ${dependency} &>/dev/null; then return 3; fi
+}
+
+# _check_init - ensures that a password store is present
+function _clipw_check_init() {
+
+    # if the file doesn't exist, exit now (exits entirely)
+    if ! [ -f ${PASSWORD_FILE} ]; then
+        echo "error! unitialized store! call init"
+        exit 2
+    fi
+
+    # ensure that the password store is rw-------
+    chmod 600 ${PASSWORD_FILE}
+}
+
+# _get_value - retrieves a value from the user
+function _clipw_get_value() {
+    local desc=${1}     # description of the value to get
+    local noblank=${2}  # if "noblank": do not allow an empty value
+
+    # do not show chars as typing
+    stty -echo
+
+    local password=''
+    while [ -z "${password}" ]; do
+
+        # show the prompt and attempt to read a value
+        echo -n "[clipw] ${desc}: " >$(tty)
+        read password
+        echo >$(tty)
+
+        # if not allowing blank, alert the user and try again
+        if [ -z "${password}" ] && [ "${noblank}" = "noblank" ]; then
+            echo "${desc} cannot be blank" >$(tty)
+        else
+            break
+        fi
+    done
+
+    # re-enable echoing and "return" the password (captured by caller)
+    stty echo
+    echo ${password}
+}
+
+# _chk_password - ensures that the user has provided the correct store password
+function _clipw_chk_password() {
+    local password="${1}" # password to check
+
+    # ensure that pw is nonblank and can successfully decrypt store
+    if [ -z "${password}" ] || ! gpg -d --passphrase ${password} ${PASSWORD_FILE} &>/dev/null; then
+        echo "invalid password!"; exit 1
+    fi
+}
+
+# _create_password - generates a password
+function _clipw_create_password() {
+    pwgen --numerals --symbols 30 1 # --symbols produces what I consider better pws
+}
+
+# operations
+
+# help - prints help info
+function clipw_help() {
+    echo "usage: clipw [FUNCTION] [ARGUMENTS] "
+    echo -e "\tFUNCTIONS"
+    echo -e "\t\tclear - remove a password from the store"
+    echo -e "\t\tdestroy - complete remove the store"
+    echo -e "\t\tget - retrieve a saved password"
+    echo -e "\t\thelp - show this help message"
+    echo -e "\t\tinit - initialize the store"
+    echo -e "\t\tlist - list all keys"
+    echo -e "\t\tpasswd - change password"
+    echo -e "\t\tput - add a new password to the store"
+    echo -e "\t\twhere - print the location of the store"
+    echo -e "\tCLEAR ARGUMENTS (clipw clear KEY)"
+    echo -e "\t\tKEY - key of password to clear"
+    echo -e "\tGET ARGUMENTS (clipw get KEY [show])"
+    echo -e "\t\tKEY - key to set"
+    echo -e "\t\tshow - print information to stdout"
+    echo -e "\tPUT ARGUMENTS (clipw put KEY [custom])"
+    echo -e "\t\tKEY - key of password to retrieve"
+    echo -e "\t\tcustom - user will provide a password"
+}
+
+# init - initializes a password store
+function clipw_init() {
+
+    # if the file already exists, tell the user and exit
+    if [ -f ${PASSWORD_FILE} ]; then
+        echo "already initialized (store in ${PASSWORD_FILE})"
+        exit 1
+    fi
+
+    echo "initializing clipw store..."
+
+    # if the dir does not already exist, we need to create it
+    if [ ! -d $(dirname ${PASSWORD_FILE}) ]; then
+        echo -e "\tcreating $(dirname ${PASSWORD_FILE})"
+        install --mode=700 -d $(dirname ${PASSWORD_FILE})
+    fi
+
+    # create an initial unencrypted file
+    local unprotected=$(echo ${PASSWORD_FILE} | sed 's/.gpg$//')
+    touch ${unprotected} && chmod 600 ${unprotected}
+    echo -e "\tinitializing store in ${PASSWORD_FILE}"
+
+    # get password from the user
+    local password=$(_clipw_get_value "new store password" noblank)
+
+    # encrypt the file and ensure proper permissions
+    gpg -c --passphrase ${password} ${unprotected}
+    chmod 600 ${PASSWORD_FILE}
+
+    # cleanup
+    rm ${unprotected}
+
+    # inform user that store has been initialized
+    echo -e "\tstore initialized!"
+}
+
+# get - retrieves a password from the store
+function clipw_get() {
+    _clipw_check_init
+    [ "${1}" = "get" ] && shift
+    local pw_key=${1}  # key of the entry to retrieve
+    local pw_show=${2} # optional "show" flag (reveal info in stdout)
+
+    # validate key:
+    #  * cannot be blank
+    #  * cannot contain a colon
+    if [ -z "${pw_key}" ]; then
+        echo "key required"; exit 1
+    fi
+    local check_key="$(_clipw_nocolon ${PW_KEY} "key")"
+    if [ -n "${check_key}" ]; then
+        echo ${check_key}
+        exit 3
+    fi
+
+    # get and check store pw
+    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+
+    # get the value from the store (format: "USERNAME:PASSWORD")
+    local userpw=$(gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | grep -E "^${pw_key}:" | \
+             sed "s/${pw_key}://")
+
+    # exit if nothing found
+    if [ -z "${userpw}" ]; then
+        echo "key ${pw_key} not found"; exit 1
+    fi
+
+    # break into username and pw components
+    local stored_username="$(echo ${userpw} | sed "s/:.*//")"
+    local stored_password="$(echo ${userpw} | sed -r "s/${stored_username}://")"
+
+    # if revealing the info or if xclip not available, simply echo to stdout
+    if [ "${pw_show}" = "show" ] || ! _clipw_depcheck xclip; then
+        echo "username: ${stored_username}"
+        echo "password: ${stored_password}"
+
+        # allow user to reset terminal to remove info from screen
+        echo "press return to reset terminal or <C-c> to quit" && read
+        reset
+
+    # otherwise, we'll use xclip
+    else
+        echo -n ${stored_username} | xclip
+        echo -n "username copied... press return to copy password" && read
+        echo -n ${stored_password} | xclip
+        echo -n "password copied... press return to clear clipboard" && read
+        echo | xclip # note: -n flag puts weird things (some of this code...?) in the X buffer (this puts newline)
+    fi
+}
+
+# put - adds a new entry to the password store
+function clipw_put() {
+    _clipw_check_init
+    local pw_key=${1}    # key of the new entry
+    local pw_custom=${2} # optional "custom" flag (provide own pw)
+
+    # validate key:
+    #  * cannot be blank
+    #  * cannot contain a colon
+    if [ -z "${pw_key}" ]; then
+        echo "missing key"; exit 1
+    fi
+    local check_key="$(_clipw_nocolon ${pw_key} "key")"
+    if [ -n "${check_key}" ]; then
+        echo ${check_key}
+        exit 2
+    fi
+
+    # get and check store pw
+    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+
+    # if the key already exists, then exit
+    if gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | grep -E "^${pw_key}:" &>/dev/null; then
+        echo "oops! key exists! clear and try again!"; exit 1
+    fi
+
+    # get username from user
+    local username=$(_clipw_get_value "username for ${pw_key}" noblank)
+
+    # validate username
+    #  * cannot be blank
+    #  * cannot contain a colon
+    if [ -z "${username}" ]; then
+        echo "username cannot be blank"; exit 1
+    fi
+    local check_username="$(_clipw_nocolon ${username} "username")"
+    if [ -n "${check_username}" ]; then
+        echo ${check_username}
+        exit 2
+    fi
+
+    # if "custom" flag, get pw from user
+    if [ "${pw_custom}" = "custom" ] || ! _clipw_depcheck pwgen; then
+        local newpw=$(_clipw_get_value "password for ${pw_key}") # we'll allow blanks
+
+    # otherwise, generate pw
+    else
+        local newpw=$(_clipw_create_password)
+    fi
+
+    # build string to place in store (format: "KEY:USERNAME:PASSWORD")
+    local userpw="${pw_key}:${username}:${newpw}"
+
+    # writing directly to the existing file is problematic, so we'll create a new file
+    # and remove the old one
+
+    # create an uncrypted new file and ensure permissions
+    touch ${PASSWORD_FILE}.new && chmod 600 ${PASSWORD_FILE}.new
+
+    # get the old store data (if any); ensure a trailing newline
+    local olddata="$(gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null)"
+    [ -n "${olddata}" ] && olddata="${olddata}\n"
+
+    # add new data, sort, and encrypt sum to new file, then replacing the old one
+    echo -e "${olddata}${userpw}" | sort | gpg -c --passphrase ${password} - > ${PASSWORD_FILE}.new \
+      && mv ${PASSWORD_FILE}.new ${PASSWORD_FILE}
+
+    # if a custom pw not provided, we'll give the user the new pw
+    if [ "${pw_custom}" != "custom" ]; then
+
+        # if xclip available, provide via clipboard
+        if _clipw_depcheck xclip; then
+            echo -n ${newpw} | xclip
+            echo -n "new password copied... press return to clear clipboard" && read
+            echo | xclip # see note elsewhere
+
+        # otherwise, echo it and allow user to reset terminal to remove info from screen
+        else
+            echo "password: ${newpw}"
+            echo "press return to reset terminal or <C-c> to quit" && read
+            reset
+        fi
+    fi
+}
+
+# list - lists all store entry keys
+function clipw_list() {
+    _clipw_check_init
+
+    # get and check store pw
+    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+
+    # print out the entry keys
+    gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | sed "s/:.*//" # will be sorted
+}
+
+# clear - removes an entry from the password store
+function clipw_clear() {
+    _clipw_check_init
+    local pw_key=${1} # key of the store entry
+
+    # validate key:
+    #  * cannot be blank
+    #  * cannot contain a colon
+    if [ -z "${pw_key}" ]; then
+        echo "no key provided"; exit 1
+    fi
+    local check_key="$(_clipw_nocolon ${pw_key} "key")"
+    if [ -n "${check_key}" ]; then
+        echo ${check_key}
+        exit 3
+    fi
+
+    # get and check store pw
+    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+
+    # create an uncrypted new file and ensure permissions
+    touch ${PASSWORD_FILE}.new && chmod 600 ${PASSWORD_FILE}.new
+
+    # get old data, remove entry (still sorted), and encrypt to new file, then replacing the old one
+    echo -e "$(gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | grep -Ev ^${pw_key}:)" | \
+      gpg -c --passphrase ${password} - > ${PASSWORD_FILE}.new && mv ${PASSWORD_FILE}.new ${PASSWORD_FILE}
+}
+
+# passwd - changes the store password
+function clipw_passwd() {
+    _clipw_check_init
+
+    # get and check old store pw
+    local old_password=$(_clipw_get_value "old password") && _clipw_chk_password ${old_password}
+
+    # get new store pw
+    local new_password=$(_clipw_get_value "new password" noblank)
+
+    # create an uncrypted new file and ensure permissions
+    touch ${PASSWORD_FILE}.new && chmod 600 ${PASSWORD_FILE}.new
+
+    # get old data and re-encrypt to new file (with new password), then replace the old one
+    echo -e "$(gpg -d --passphrase ${OLD_PASSWORD} ${PASSWORD_FILE} 2>/dev/null)" | \
+      gpg -c --passphrase ${NEW_PASSWORD} - > ${PASSWORD_FILE}.new && mv ${PASSWORD_FILE}.new ${PASSWORD_FILE}
+}
+
+# destroy - completely removes the password store
+function clipw_destroy() {
+    _clipw_check_init
+
+    # get and check store pw
+    local old_password=$(_clipw_get_value "password") && _clipw_chk_password ${old_password}
+
+    # confirm that the user wants to destroy the store
+    echo -n "press <Return> to destroy your password store (${PASSWORD_FILE}), or <C-c> to exit"; read
+
+    # user still here, so destroy
+    shred -ufzn 1000 ${PASSWORD_FILE} &>/dev/null
+
+    # ensure user that action complete
+    echo "password store destroyed"
+}
+
+# where - prints the location of the password store
+function clipw_where() {
+    _clipw_check_init
+
+    # simply echo the password file location
+    echo "password store at: ${PASSWORD_FILE}"
+}
+
+# decode
+
+[ $# = 0 ] && clipw_help && exit
+OPERATION=${1}; shift
+if ! _clipw_depcheck gpg; then # GPG is absolutely required
+    echo "gpg is required to run clipw"
+    exit 3
+fi
+case ${OPERATION} in
+    init|put|clear|destroy|where|list|passwd|help|get)
+        clipw_${OPERATION} $@
+        ;;
+    *) # show help if given an unknown operation
+        clipw_help $@
+        exit 1
+        ;;
+esac
+
