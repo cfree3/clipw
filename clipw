@@ -78,7 +78,7 @@ function _clipw_get_value() {
 
     # re-enable echoing and "return" the password (captured by caller)
     stty echo
-    echo ${password}
+    echo "${password}"
 }
 
 # _chk_password - ensures that the user has provided the correct store password
@@ -86,7 +86,7 @@ function _clipw_chk_password() {
     local password="${1}" # password to check
 
     # ensure that pw is nonblank and can successfully decrypt store
-    if [ -z "${password}" ] || ! gpg -d --passphrase ${password} ${PASSWORD_FILE} &>/dev/null; then
+    if [ -z "${password}" ] || ! gpg -d --passphrase "${password}" ${PASSWORD_FILE} &>/dev/null; then
         echo "invalid password!"; exit 1
     fi
 }
@@ -147,7 +147,7 @@ function clipw_init() {
     local password=$(_clipw_get_value "new store password" noblank)
 
     # encrypt the file and ensure proper permissions
-    gpg -c --passphrase ${password} ${unprotected}
+    gpg -c --passphrase "${password}" ${unprotected}
     chmod 600 ${PASSWORD_FILE}
 
     # cleanup
@@ -177,10 +177,10 @@ function clipw_get() {
     fi
 
     # get and check store pw
-    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+    local password=$(_clipw_get_value "password") && _clipw_chk_password "${password}"
 
     # get the value from the store (format: "USERNAME:PASSWORD")
-    local userpw=$(gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | grep -E "^${pw_key}:" | \
+    local userpw=$(gpg -d --passphrase "${password}" ${PASSWORD_FILE} 2>/dev/null | grep -E "^${pw_key}:" | \
              sed "s/${pw_key}://")
 
     # exit if nothing found
@@ -230,10 +230,10 @@ function clipw_put() {
     fi
 
     # get and check store pw
-    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+    local password=$(_clipw_get_value "password") && _clipw_chk_password "${password}"
 
     # if the key already exists, then exit
-    if gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | grep -E "^${pw_key}:" &>/dev/null; then
+    if gpg -d --passphrase "${password}" ${PASSWORD_FILE} 2>/dev/null | grep -E "^${pw_key}:" &>/dev/null; then
         echo "oops! key exists! clear and try again!"; exit 1
     fi
 
@@ -271,11 +271,11 @@ function clipw_put() {
     touch ${PASSWORD_FILE}.new && chmod 600 ${PASSWORD_FILE}.new
 
     # get the old store data (if any); ensure a trailing newline
-    local olddata="$(gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null)"
+    local olddata="$(gpg -d --passphrase "${password}" ${PASSWORD_FILE} 2>/dev/null)"
     [ -n "${olddata}" ] && olddata="${olddata}\n"
 
     # add new data, sort, and encrypt sum to new file, then replacing the old one
-    echo -e "${olddata}${userpw}" | sort | gpg -c --passphrase ${password} - > ${PASSWORD_FILE}.new \
+    echo -e "${olddata}${userpw}" | sort | gpg -c --passphrase "${password}" - > ${PASSWORD_FILE}.new \
       && mv ${PASSWORD_FILE}.new ${PASSWORD_FILE}
 
     # if a custom pw not provided, we'll give the user the new pw
@@ -301,10 +301,10 @@ function clipw_list() {
     _clipw_check_init
 
     # get and check store pw
-    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+    local password=$(_clipw_get_value "password") && _clipw_chk_password "${password}"
 
     # print out the entry keys
-    gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | sed "s/:.*//" # will be sorted
+    gpg -d --passphrase "${password}" ${PASSWORD_FILE} 2>/dev/null | sed "s/:.*//" # will be sorted
 }
 
 # clear - removes an entry from the password store
@@ -325,14 +325,14 @@ function clipw_clear() {
     fi
 
     # get and check store pw
-    local password=$(_clipw_get_value "password") && _clipw_chk_password ${password}
+    local password=$(_clipw_get_value "password") && _clipw_chk_password "${password}"
 
     # create an uncrypted new file and ensure permissions
     touch ${PASSWORD_FILE}.new && chmod 600 ${PASSWORD_FILE}.new
 
     # get old data, remove entry (still sorted), and encrypt to new file, then replacing the old one
-    echo -e "$(gpg -d --passphrase ${password} ${PASSWORD_FILE} 2>/dev/null | grep -Ev ^${pw_key}:)" | \
-      gpg -c --passphrase ${password} - > ${PASSWORD_FILE}.new && mv ${PASSWORD_FILE}.new ${PASSWORD_FILE}
+    echo -e "$(gpg -d --passphrase "${password}" ${PASSWORD_FILE} 2>/dev/null | grep -Ev ^${pw_key}:)" | \
+      gpg -c --passphrase "${password}" - > ${PASSWORD_FILE}.new && mv ${PASSWORD_FILE}.new ${PASSWORD_FILE}
 }
 
 # passwd - changes the store password
