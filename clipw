@@ -203,11 +203,11 @@ function clipw_get() {
 
     # otherwise, we'll use xclip
     else
-        echo -n ${stored_username} | xclip
+        echo -n ${stored_username} | xclip -selection clipboard
         echo -n "username copied... press return to copy password" && read
-        echo -n ${stored_password} | xclip
+        echo -n ${stored_password} | xclip -selection clipboard
         echo -n "password copied... press return to clear clipboard" && read
-        echo | xclip # note: -n flag puts weird things (some of this code...?) in the X buffer (this puts newline)
+        echo | xclip -selection clipboard # note: -n flag puts weird things (some of this code...?) in the X buffer (this puts newline)
     fi
 }
 
