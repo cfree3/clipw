@@ -207,7 +207,8 @@ function clipw_get() {
         echo -n "username copied... press return to copy password" && read
         echo -n ${stored_password} | xclip -selection clipboard
         echo -n "password copied... press return to clear clipboard" && read
-        echo | xclip -selection clipboard # note: -n flag puts weird things (some of this code...?) in the X buffer (this puts newline)
+        # note: -n flag puts weird things (some of this code...?) in the X buffer (this puts newline)
+        echo | xclip -selection clipboard
     fi
 }
 
@@ -283,9 +284,9 @@ function clipw_put() {
 
         # if xclip available, provide via clipboard
         if _clipw_depcheck xclip; then
-            echo -n ${newpw} | xclip
+            echo -n ${newpw} | xclip -selection clipboard
             echo -n "new password copied... press return to clear clipboard" && read
-            echo | xclip # see note elsewhere
+            echo | xclip -selection clipboard # see note elsewhere
 
         # otherwise, echo it and allow user to reset terminal to remove info from screen
         else
