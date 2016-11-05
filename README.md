@@ -119,19 +119,11 @@ Legal Stuff
 `clipw` &copy; 2010 Curtis Free. All utilities used by the `clipw` script are copyright their
 respective owners.
 
-License?
---------
-You may use `clipw` yourself or incorporate it in any project (open- or closed-source) as long as
-you give credit to me (Curtis Free) as the creator of the original `clipw` code.
-
-I'd [like to hear](&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#99;&#102;&#64;&#99;&#117;&#114;&#116;&#105;&#115;&#102;&#114;&#101;&#101;&#46;&#99;&#111;&#109;)
-if you find `clipw` useful. :-)
+License
+-------
+`clipw` is released under the MIT license (see `LICENSE.md`).
 
 DISCLAIMER
 ----------
 I give no assurance of this utility's security, and I do not guarantee that it will not zap your
 computer and fry your homedir. _Use at your own risk._
-
-Bugs
-----
-This is a "works-for-me-maybe" project: I do not guarantee that any bugfixing will occur.
