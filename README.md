@@ -114,14 +114,10 @@ the dependency `pwgen`) contain a wider range of characters than those created b
 
 It's up to you. Use what you like!
 
-Legal Stuff
------------
-`clipw` &copy; 2010 Curtis Free. All utilities used by the `clipw` script are copyright their
-respective owners.
-
 License
 -------
-`clipw` is released under the MIT license (see `LICENSE.md`).
+`clipw` is released under the MIT license (see `LICENSE.md`). Note that `clipw` is just a single
+shell script; utilities called by the script are licensed by their respective owners.
 
 DISCLAIMER
 ----------
